@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from app.routers import tasks, availability, plans, ai
+from app.routers import constraints
 
 app = FastAPI(
     title="Agente de Planificación Académica",
@@ -9,6 +10,7 @@ app = FastAPI(
 
 app.include_router(tasks.router)
 app.include_router(availability.router)
+app.include_router(constraints.router)
 app.include_router(plans.router)
 app.include_router(ai.router)
 
