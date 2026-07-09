@@ -19,6 +19,6 @@ class ConstraintOut(BaseModel):
     user_id:     UUID
     type:        ConstraintType
     description: str
-    metadata:    Optional[dict[str, Any]]
+    meta_data:    Optional[dict[str, Any]]
 
     model_config = {"from_attributes": True}
