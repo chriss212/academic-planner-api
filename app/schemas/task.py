@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import date, datetime
 from uuid import UUID
 from typing import Optional
@@ -40,4 +40,4 @@ class TaskOut(BaseModel):
     status:       TaskStatus
     created_at:   Optional[datetime]
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)

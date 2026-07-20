@@ -9,15 +9,16 @@ from sqlalchemy.sql import func
 from app.database import Base
 
 
-class AITrace(Base):
-    __tablename__ = "ai_traces"
+class HistoryEntry(Base):
+    __tablename__ = "history_entries"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), nullable=False)
     plan_id = Column(UUID(as_uuid=True), nullable=False)
     version = Column(Integer, nullable=False)
-    prompt_enviado = Column(Text, nullable=False)
-    respuesta_ia = Column(Text, nullable=False)
-    response_status = Column(String(20), nullable=False)
-    modelo_usado = Column(String(100), nullable=False)
+    scope = Column(String(20), nullable=False)
+    action = Column(String(30), nullable=False)
+    approval_status = Column(String(30), nullable=False)
+    prompt_used = Column(Text, nullable=False)
     created_at = Column(DateTime, server_default=func.now())
+    user_note = Column(Text)

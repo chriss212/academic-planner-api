@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from uuid import UUID
 from typing import Optional, Any
 from enum import Enum
@@ -14,11 +14,16 @@ class ConstraintCreate(BaseModel):
     description: str
     metadata:    Optional[dict[str, Any]] = None
 
+class ConstraintUpdate(BaseModel):
+    type:        Optional[ConstraintType] = None
+    description: Optional[str] = None
+    metadata:    Optional[dict[str, Any]] = None
+
 class ConstraintOut(BaseModel):
     id:          UUID
     user_id:     UUID
     type:        ConstraintType
     description: str
-    meta_data:    Optional[dict[str, Any]]
+    metadata:    Optional[dict[str, Any]] = Field(default=None, alias="meta_data")
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
