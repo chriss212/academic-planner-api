@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 from datetime import date, datetime
 from uuid import UUID
 from typing import Optional
@@ -19,6 +19,13 @@ class TaskCreate(BaseModel):
     priority:     int            = Field(..., ge=1, le=5)
     effort_hours: int            = Field(..., gt=0)
 
+    @field_validator("deadline")
+    @classmethod
+    def deadline_not_past(cls, value: date) -> date:
+        if value < date.today():
+            raise ValueError("deadline no puede ser anterior a hoy")
+        return value
+
 class TaskUpdate(BaseModel):
     title:        Optional[str]        = None
     description:  Optional[str]        = None
@@ -27,6 +34,21 @@ class TaskUpdate(BaseModel):
     priority:     Optional[int]        = Field(None, ge=1, le=5)
     effort_hours: Optional[int]        = Field(None, gt=0)
     status:       Optional[TaskStatus] = None
+
+    @field_validator("deadline")
+    @classmethod
+    def deadline_not_past(cls, value: Optional[date]) -> Optional[date]:
+        if value is not None and value < date.today():
+            raise ValueError("deadline no puede ser anterior a hoy")
+        return value
+
+class TaskSummaryOut(BaseModel):
+    total:       int
+    pending:     int
+    in_progress: int
+    completed:   int
+    overdue:     int
+    rescheduled: int
 
 class TaskOut(BaseModel):
     id:           UUID

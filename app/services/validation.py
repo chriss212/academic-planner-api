@@ -1,24 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, time, timedelta
-from typing import Iterable
+from datetime import date, time
 
-from app.schemas.availability import AvailabilityOut, Weekday
+from app.schemas.availability import AvailabilityOut
 from app.schemas.constraint import ConstraintOut, ConstraintType
 from app.schemas.plan import PlanItemOut, PlanConflictOut
 from app.schemas.task import TaskOut
-
-
-WEEKDAY_ORDER = {
-    "lunes": 0,
-    "martes": 1,
-    "miercoles": 2,
-    "jueves": 3,
-    "viernes": 4,
-    "sabado": 5,
-    "domingo": 6,
-}
 
 
 @dataclass(slots=True)
@@ -33,14 +21,6 @@ class BusinessValidationResult:
 
 def _time_to_minutes(value: time) -> int:
     return value.hour * 60 + value.minute
-
-
-def _minutes_to_time(value: int) -> time:
-    return (datetime.min + timedelta(minutes=value)).time()
-
-
-def _day_matches(plan_day: Weekday, availability_day: str) -> bool:
-    return plan_day.value == availability_day
 
 
 def _overlaps(start_a: int, end_a: int, start_b: int, end_b: int) -> bool:
@@ -59,9 +39,9 @@ def validate_plan_business_rules(
     deficit_minutes = 0
 
     task_by_id = {str(task.id): task for task in tasks}
-    availability_by_day: dict[str, list[AvailabilityOut]] = {}
+    availability_by_day: dict[date, list[AvailabilityOut]] = {}
     for block in availability_blocks:
-        availability_by_day.setdefault(block.day.value, []).append(block)
+        availability_by_day.setdefault(block.date, []).append(block)
 
     max_session_minutes = None
     fixed_blocks: list[ConstraintOut] = []
@@ -69,9 +49,10 @@ def validate_plan_business_rules(
     for constraint in constraints:
         if constraint.type == ConstraintType.max_session_hours:
             metadata = constraint.metadata or {}
-            value = metadata.get("max_session_minutes") or metadata.get("max_session_hours")
-            if isinstance(value, (int, float)):
-                max_session_minutes = int(value)
+            if isinstance(metadata.get("max_session_minutes"), (int, float)):
+                max_session_minutes = int(metadata["max_session_minutes"])
+            elif isinstance(metadata.get("max_session_hours"), (int, float)):
+                max_session_minutes = int(float(metadata["max_session_hours"]) * 60)
         elif constraint.type == ConstraintType.fixed_task:
             fixed_blocks.append(constraint)
 
@@ -103,14 +84,14 @@ def validate_plan_business_rules(
             )
             recommendations.append("Divide la tarea en sesiones más cortas.")
 
-        day_blocks = availability_by_day.get(item.dia.value, [])
+        day_blocks = availability_by_day.get(item.dia, [])
         if not day_blocks:
             conflicts.append(
                 PlanConflictOut(
                     tarea_id=item.tarea_id,
                     tipo="sin_disponibilidad",
                     severidad="critico",
-                    mensaje=f"No hay disponibilidad declarada para {item.dia.value}.",
+                    mensaje=f"No hay disponibilidad declarada para {item.dia.isoformat()}.",
                 )
             )
             deficit_minutes += duration
@@ -137,12 +118,19 @@ def validate_plan_business_rules(
 
         for constraint in fixed_blocks:
             metadata = constraint.metadata or {}
-            constraint_day = metadata.get("day") or metadata.get("dia") or getattr(constraint, "day", None)
+            # La tarea fija puede ocupar su propia ventana sin generar conflicto.
+            if metadata.get("task_id") and str(item.tarea_id) == str(metadata["task_id"]):
+                continue
+            constraint_day = metadata.get("date") or metadata.get("dia")
             constraint_start = metadata.get("start_time") or metadata.get("bloque_inicio")
             constraint_end = metadata.get("end_time") or metadata.get("bloque_fin")
             if not (constraint_day and constraint_start and constraint_end):
                 continue
-            if str(constraint_day) != item.dia.value:
+            try:
+                constraint_date = date.fromisoformat(str(constraint_day))
+            except ValueError:
+                continue
+            if constraint_date != item.dia:
                 continue
             fixed_start = _time_to_minutes(time.fromisoformat(str(constraint_start)))
             fixed_end = _time_to_minutes(time.fromisoformat(str(constraint_end)))
