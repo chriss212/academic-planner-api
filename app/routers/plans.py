@@ -7,10 +7,17 @@ from uuid import UUID
 
 from app.core.auth import get_current_user_id
 from app.database import get_db
+from app.models.availability import AvailabilityBlock
+from app.models.constraint import Constraint
 from app.models.history import HistoryEntry
 from app.models.plan import Plan
+from app.models.task import Task
+from app.schemas.availability import AvailabilityOut
+from app.schemas.constraint import ConstraintOut
 from app.schemas.history import HistoryEntryOut
 from app.schemas.plan import PlanApprovalUpdate, PlanGenerationResponse, PlanItemOut, PlanManualUpdate
+from app.schemas.task import TaskOut
+from app.services.validation import validate_plan_business_rules
 
 router = APIRouter(prefix="/plans", tags=["plans"])
 
@@ -84,9 +91,36 @@ async def update_plan(
     if not plan:
         raise HTTPException(status_code=404, detail="Plan no encontrado")
 
+    # Revalidar el plan editado contra las reglas de negocio antes de limpiar estado_revision.
+    tasks_result = await db.execute(select(Task).where(Task.user_id == user_id))
+    availability_result = await db.execute(
+        select(AvailabilityBlock).where(AvailabilityBlock.user_id == user_id)
+    )
+    constraint_result = await db.execute(select(Constraint).where(Constraint.user_id == user_id))
+
+    validation = validate_plan_business_rules(
+        plan_items=payload.plan,
+        tasks=[TaskOut.model_validate(t) for t in tasks_result.scalars().all()],
+        availability_blocks=[AvailabilityOut.model_validate(b) for b in availability_result.scalars().all()],
+        constraints=[ConstraintOut.model_validate(c) for c in constraint_result.scalars().all()],
+    )
+
     plan.plan = [item.model_dump(mode="json") for item in payload.plan]
     plan.approval_status = "editado"
-    plan.estado_revision = "normal"
+    if validation.is_valid:
+        plan.estado_revision = "normal"
+        plan.response_status = "valid"
+        plan.validation_code = None
+        plan.conflictos = []
+    else:
+        plan.estado_revision = "requiere_revision"
+        plan.response_status = "invalid"
+        plan.validation_code = validation.validation_code
+        plan.viabilidad = validation.forced_viabilidad or "viable_con_ajustes"
+        plan.conflictos = [c.model_dump(mode="json") for c in validation.conflictos]
+        plan.riesgos = validation.riesgos
+        plan.recomendaciones = validation.recomendaciones
+
     if payload.user_note:
         plan.justificacion = f"{plan.justificacion}\n\nNota del usuario: {payload.user_note}"
 
