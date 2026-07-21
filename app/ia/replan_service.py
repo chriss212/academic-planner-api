@@ -6,6 +6,15 @@ from app.ia.response_validator import AIPlanResponse, validate_wire_response
 from app.schemas.plan import PlanGenerationRequest
 
 
+class ReplanValidationError(ValueError):
+    """La respuesta del modelo no pasó la validación de dominio tras el reintento (ERR-IA-001)."""
+
+    def __init__(self, message: str, prompt: str, raw_response: str) -> None:
+        super().__init__(message)
+        self.prompt = prompt
+        self.raw_response = raw_response
+
+
 class ReplanService:
     def __init__(self, client: IAClient | None = None) -> None:
         self.client = client or IAClient()
@@ -33,5 +42,10 @@ class ReplanService:
             retry_response, retry_wire, retry_usage = await self.client.generate_plan_structured(
                 SYSTEM_PROMPT, retry_prompt
             )
-            parsed = validate_wire_response(retry_wire, task_ids)
+            try:
+                parsed = validate_wire_response(retry_wire, task_ids)
+            except ValueError as second_error:
+                raise ReplanValidationError(
+                    str(second_error), prompt=retry_prompt, raw_response=retry_response
+                ) from second_error
             return retry_response, parsed, retry_prompt, usage.add(retry_usage)

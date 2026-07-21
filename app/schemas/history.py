@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -17,5 +17,6 @@ class HistoryEntryOut(BaseModel):
     prompt_used: str
     created_at: Optional[datetime]
     user_note: Optional[str] = None
+    change_block: Optional[dict[str, Any]] = None
 
     model_config = ConfigDict(from_attributes=True)

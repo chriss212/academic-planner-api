@@ -126,6 +126,7 @@ def upgrade() -> None:
         sa.Column("prompt_used", sa.Text(), nullable=False),
         sa.Column("created_at", sa.DateTime(), server_default=sa.func.now()),
         sa.Column("user_note", sa.Text()),
+        sa.Column("change_block", postgresql.JSONB()),
     )
     op.create_index("ix_history_entries_user_id", "history_entries", ["user_id"])
 
