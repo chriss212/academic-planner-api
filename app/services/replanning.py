@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -19,8 +19,8 @@ from app.models.task import Task
 from app.schemas.availability import AvailabilityOut
 from app.schemas.constraint import ConstraintOut
 from app.schemas.plan import PlanGenerationRequest, PlanGenerationResponse, PlanItemOut, PlanConflictOut
-from app.schemas.task import TaskOut
-from app.services.planning import build_planning_context
+from app.schemas.task import TaskOut, TaskStatus
+from app.services.planning import analyze_planning_input, build_planning_context
 from app.services.validation import validate_plan_business_rules
 
 
@@ -88,33 +88,48 @@ async def generate_and_persist_plan(
     payload: PlanGenerationRequest,
 ) -> PlanGenerationResponse:
     tasks, availability_blocks, constraints = await _load_context(db, user_id)
+    task_outs = [_task_out(task) for task in tasks]
+    availability_outs = [_availability_out(block) for block in availability_blocks]
+    constraint_outs = [_constraint_out(constraint) for constraint in constraints]
 
-    if not tasks or not availability_blocks:
+    analysis = analyze_planning_input(task_outs, availability_outs, constraint_outs)
+    if not analysis.is_ready:
         raise HTTPException(
             status_code=422,
             detail={
                 "code": "ERR-DATA-001",
-                "message": "Faltan tareas o bloques de disponibilidad para generar el plan.",
+                "message": f"Faltan datos para generar el plan: {', '.join(analysis.missing)}.",
+                "missing": analysis.missing,
             },
         )
+
+    today = date.today()
+    for task in tasks:
+        if task.deadline < today and task.status not in ("completed", "overdue"):
+            task.status = TaskStatus.overdue.value
+    task_outs = [_task_out(task) for task in tasks]
 
     previous_plan = await _latest_plan(db, user_id)
     scope = payload.scope or (previous_plan.scope if previous_plan else "semanal")
     version = (previous_plan.version + 1) if previous_plan else 1
 
     context = build_planning_context(
-        tasks=[_task_out(task) for task in tasks],
-        availability_blocks=[_availability_out(block) for block in availability_blocks],
-        constraints=[_constraint_out(constraint) for constraint in constraints],
+        tasks=task_outs,
+        availability_blocks=availability_outs,
+        constraints=constraint_outs,
         scope=scope,
         user_note=payload.user_note,
         previous_plan={
             "id": str(previous_plan.id),
             "version": previous_plan.version,
             "scope": previous_plan.scope,
+            "plan": previous_plan.plan,
+            "viabilidad": previous_plan.viabilidad,
+            "justificacion": previous_plan.justificacion,
         }
         if previous_plan
         else None,
+        analysis=analysis,
     )
 
     service = ReplanService()
@@ -137,13 +152,30 @@ async def generate_and_persist_plan(
 
     business_validation = validate_plan_business_rules(
         plan_items=[PlanItemOut.model_validate(item) for item in parsed.plan],
-        tasks=[_task_out(task) for task in tasks],
-        availability_blocks=[_availability_out(block) for block in availability_blocks],
-        constraints=[_constraint_out(constraint) for constraint in constraints],
+        tasks=task_outs,
+        availability_blocks=availability_outs,
+        constraints=constraint_outs,
     )
 
     response_status = "valid" if business_validation.is_valid else "invalid"
     estado_revision = "normal" if business_validation.is_valid else "requiere_revision"
+
+    if business_validation.is_valid:
+        viabilidad = parsed.viabilidad
+    else:
+        viabilidad = business_validation.forced_viabilidad or "no_viable"
+
+    riesgos = list(dict.fromkeys([*analysis.warnings, *business_validation.riesgos, *list(parsed.riesgos)]))
+    recomendaciones = list(
+        dict.fromkeys(
+            [*analysis.recommendations, *business_validation.recomendaciones, *list(parsed.recomendaciones)]
+        )
+    )
+    conflictos = (
+        [c.model_dump(mode="json") for c in business_validation.conflictos]
+        if business_validation.conflictos
+        else [c.model_dump(mode="json") for c in parsed.conflictos]
+    )
 
     task_lookup = {str(task.id): task for task in tasks}
     enriched_plan = []
@@ -158,7 +190,7 @@ async def generate_and_persist_plan(
                 orden=item.orden,
                 task_title=task.title if task else None,
                 priority=task.priority if task else None,
-                status="programada" if not task else task.status.value,
+                status=task.status if task else "programada",
             )
         )
 
@@ -167,11 +199,11 @@ async def generate_and_persist_plan(
         version=version,
         version_plan=f"v{version}",
         scope=scope,
-        viabilidad=parsed.viabilidad if business_validation.is_valid else "no_viable",
+        viabilidad=viabilidad,
         justificacion=parsed.justificacion,
-        riesgos=business_validation.riesgos or list(parsed.riesgos),
-        conflictos=[conflict.model_dump(mode="json") for conflict in (business_validation.conflictos or parsed.conflictos)],
-        recomendaciones=business_validation.recomendaciones or list(parsed.recomendaciones),
+        riesgos=riesgos,
+        conflictos=conflictos,
+        recomendaciones=recomendaciones,
         plan=[item.model_dump(mode="json") for item in enriched_plan],
         prompt_enviado=prompt_used,
         respuesta_ia=raw_response,
