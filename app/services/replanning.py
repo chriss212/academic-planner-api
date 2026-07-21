@@ -207,7 +207,7 @@ async def generate_and_persist_plan(
         ) from error
 
     business_validation = validate_plan_business_rules(
-        plan_items=[PlanItemOut.model_validate(item) for item in parsed.plan],
+        plan_items=[PlanItemOut.model_validate(item.model_dump()) for item in parsed.plan],
         tasks=task_outs,
         availability_blocks=availability_outs,
         constraints=constraint_outs,
