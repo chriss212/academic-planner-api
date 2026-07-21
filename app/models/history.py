@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 
 from app.database import Base
@@ -22,3 +22,4 @@ class HistoryEntry(Base):
     prompt_used = Column(Text, nullable=False)
     created_at = Column(DateTime, server_default=func.now())
     user_note = Column(Text)
+    change_block = Column(JSONB)

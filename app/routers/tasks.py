@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
 from uuid import UUID
@@ -8,7 +8,7 @@ from app.database import get_db
 from app.models.task import Task
 from app.schemas.task import TaskCreate, TaskStatus, TaskSummaryOut, TaskUpdate, TaskOut
 from app.core.auth import get_current_user_id
-from app.services.replanning import generate_and_persist_plan
+from app.services.replanning import try_auto_replan
 from app.schemas.plan import PlanGenerationRequest
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -16,6 +16,7 @@ router = APIRouter(prefix="/tasks", tags=["tasks"])
 @router.post("/", response_model=TaskOut, status_code=201)
 async def create_task(
     payload: TaskCreate,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     user_id: UUID = Depends(get_current_user_id),
 ):
@@ -23,23 +24,22 @@ async def create_task(
     db.add(task)
     await db.commit()
     await db.refresh(task)
-    try:
-        await generate_and_persist_plan(
-            db,
-            user_id,
-            PlanGenerationRequest(
-                scope="semanal",
-                user_note="Replanificación por creación de tarea",
-                change_block={
-                    "entity": "task",
-                    "operation": "create",
-                    "task_id": str(task.id),
-                    "changes": payload.model_dump(mode="json"),
-                },
-            ),
-        )
-    except HTTPException:
-        pass
+    replan_status = await try_auto_replan(
+        db,
+        user_id,
+        PlanGenerationRequest(
+            scope="semanal",
+            user_note="Replanificación por creación de tarea",
+            change_block={
+                "tipo_evento": "tarea_nueva",
+                "entity": "task",
+                "operation": "create",
+                "task_id": str(task.id),
+                "changes": payload.model_dump(mode="json"),
+            },
+        ),
+    )
+    response.headers["X-Replan-Status"] = replan_status
     return task
 
 @router.get("/", response_model=list[TaskOut])
@@ -87,6 +87,7 @@ async def get_task(task_id: UUID, db: AsyncSession = Depends(get_db), user_id: U
 async def update_task(
     task_id: UUID,
     payload: TaskUpdate,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     user_id: UUID = Depends(get_current_user_id),
 ):
@@ -98,28 +99,28 @@ async def update_task(
         setattr(task, field, value)
     await db.commit()
     await db.refresh(task)
-    try:
-        await generate_and_persist_plan(
-            db,
-            user_id,
-            PlanGenerationRequest(
-                scope="semanal",
-                user_note="Replanificación por actualización de tarea",
-                change_block={
-                    "entity": "task",
-                    "operation": "update",
-                    "task_id": str(task.id),
-                    "changes": payload.model_dump(exclude_none=True, mode="json"),
-                },
-            ),
-        )
-    except HTTPException:
-        pass
+    replan_status = await try_auto_replan(
+        db,
+        user_id,
+        PlanGenerationRequest(
+            scope="semanal",
+            user_note="Replanificación por actualización de tarea",
+            change_block={
+                "tipo_evento": "tarea_modificada",
+                "entity": "task",
+                "operation": "update",
+                "task_id": str(task.id),
+                "changes": payload.model_dump(exclude_none=True, mode="json"),
+            },
+        ),
+    )
+    response.headers["X-Replan-Status"] = replan_status
     return task
 
 @router.delete("/{task_id}", status_code=204)
 async def delete_task(
     task_id: UUID,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     user_id: UUID = Depends(get_current_user_id),
 ):
@@ -127,22 +128,22 @@ async def delete_task(
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail="Tarea no encontrada")
+    snapshot = TaskOut.model_validate(task).model_dump(mode="json")
     await db.delete(task)
     await db.commit()
-    try:
-        await generate_and_persist_plan(
-            db,
-            user_id,
-            PlanGenerationRequest(
-                scope="semanal",
-                user_note="Replanificación por eliminación de tarea",
-                change_block={
-                    "entity": "task",
-                    "operation": "delete",
-                    "task_id": str(task.id),
-                    "snapshot": TaskOut.model_validate(task).model_dump(mode="json"),
-                },
-            ),
-        )
-    except HTTPException:
-        pass
+    replan_status = await try_auto_replan(
+        db,
+        user_id,
+        PlanGenerationRequest(
+            scope="semanal",
+            user_note="Replanificación por eliminación de tarea",
+            change_block={
+                "tipo_evento": "tarea_modificada",
+                "entity": "task",
+                "operation": "delete",
+                "task_id": str(task_id),
+                "snapshot": snapshot,
+            },
+        ),
+    )
+    response.headers["X-Replan-Status"] = replan_status

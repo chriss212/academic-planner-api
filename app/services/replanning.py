@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime
 from uuid import UUID
 
@@ -9,8 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.ia.ia_client import IAClientError
-from app.ia.replan_service import ReplanService
+from app.ia.prompt_builder import build_generation_prompt
+from app.ia.replan_service import ReplanService, ReplanValidationError
 from app.models.ai_trace import AITrace
+
+logger = logging.getLogger("app.replanning")
 from app.models.history import HistoryEntry
 from app.models.plan import Plan
 from app.models.availability import AvailabilityBlock
@@ -57,6 +61,28 @@ async def _latest_plan(db: AsyncSession, user_id: UUID) -> Plan | None:
         .limit(1)
     )
     return result.scalar_one_or_none()
+
+
+async def _record_failed_trace(
+    db: AsyncSession,
+    user_id: UUID,
+    version: int,
+    prompt: str,
+    raw_response: str,
+    status: str,
+) -> None:
+    """Registra en ai_traces un intento fallido de generación (RF-10, RF-12)."""
+    trace = AITrace(
+        user_id=user_id,
+        plan_id=None,
+        version=version,
+        prompt_enviado=prompt,
+        respuesta_ia=raw_response or "",
+        response_status=status,
+        modelo_usado=settings.openai_model,
+    )
+    db.add(trace)
+    await db.commit()
 
 
 def _plan_to_response(plan: Plan) -> PlanGenerationResponse:
@@ -132,19 +158,49 @@ async def generate_and_persist_plan(
         analysis=analysis,
     )
 
+    request = PlanGenerationRequest(scope=scope, user_note=payload.user_note, change_block=payload.change_block)
     service = ReplanService()
     try:
         raw_response, parsed, prompt_used, token_usage = await service.generate_plan(
-            payload=PlanGenerationRequest(scope=scope, user_note=payload.user_note, change_block=payload.change_block),
+            payload=request,
             context=context,
             task_ids=[task.id for task in tasks],
         )
     except IAClientError as error:
+        await _record_failed_trace(
+            db,
+            user_id=user_id,
+            version=version,
+            prompt=build_generation_prompt(request, context),
+            raw_response=str(error),
+            status="error",
+        )
         raise HTTPException(
             status_code=503,
             detail={"code": "ERR-SYS-001", "message": "Servicio de IA no disponible"},
         ) from error
+    except ReplanValidationError as error:
+        await _record_failed_trace(
+            db,
+            user_id=user_id,
+            version=version,
+            prompt=error.prompt,
+            raw_response=error.raw_response,
+            status="invalid",
+        )
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "ERR-IA-001", "message": str(error)},
+        ) from error
     except ValueError as error:
+        await _record_failed_trace(
+            db,
+            user_id=user_id,
+            version=version,
+            prompt=build_generation_prompt(request, context),
+            raw_response=str(error),
+            status="error",
+        )
         raise HTTPException(
             status_code=502,
             detail={"code": "ERR-IA-001", "message": str(error)},
@@ -225,6 +281,7 @@ async def generate_and_persist_plan(
         approval_status="propuesto",
         prompt_used=plan_row.prompt_enviado,
         user_note=payload.user_note,
+        change_block=payload.change_block,
     )
     db.add(history_entry)
 
@@ -244,3 +301,30 @@ async def generate_and_persist_plan(
     await db.commit()
     await db.refresh(plan_row)
     return _plan_to_response(plan_row)
+
+
+async def try_auto_replan(
+    db: AsyncSession,
+    user_id: UUID,
+    payload: PlanGenerationRequest,
+) -> str:
+    """Replanificación automática tras una mutación de dominio (RF-07).
+
+    Nunca deshace la mutación que la disparó. Devuelve un estado observable
+    que los routers exponen en el header X-Replan-Status:
+    - "skipped_no_plan": aún no existe ningún plan; no se gasta una llamada IA.
+    - "replanned_v<N>": se generó la versión N.
+    - "failed_<código>": la replanificación falló (el detalle queda en logs y ai_traces).
+    """
+    previous_plan = await _latest_plan(db, user_id)
+    if previous_plan is None:
+        return "skipped_no_plan"
+
+    try:
+        result = await generate_and_persist_plan(db, user_id, payload)
+        return f"replanned_v{result.version}"
+    except HTTPException as error:
+        detail = error.detail
+        code = detail.get("code") if isinstance(detail, dict) else f"HTTP-{error.status_code}"
+        logger.warning("Auto-replan falló para el usuario %s: %s", user_id, detail)
+        return f"failed_{code}"
