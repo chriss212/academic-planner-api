@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from datetime import date
-
 from app.schemas.availability import AvailabilityOut
 from app.schemas.constraint import ConstraintOut
 from app.schemas.task import TaskOut
@@ -33,7 +31,7 @@ def build_planning_context(
         "availability_blocks": [
             {
                 "id": str(block.id),
-                "day": block.day.value,
+                "date": block.date.isoformat(),
                 "start_time": block.start_time.isoformat(timespec="minutes"),
                 "end_time": block.end_time.isoformat(timespec="minutes"),
                 "label": block.label,

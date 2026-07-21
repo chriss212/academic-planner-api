@@ -1,10 +1,12 @@
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import func, select
 from uuid import UUID
 from app.database import get_db
 from app.models.task import Task
-from app.schemas.task import TaskCreate, TaskUpdate, TaskOut
+from app.schemas.task import TaskCreate, TaskStatus, TaskSummaryOut, TaskUpdate, TaskOut
 from app.core.auth import get_current_user_id
 from app.services.replanning import generate_and_persist_plan
 from app.schemas.plan import PlanGenerationRequest
@@ -42,13 +44,36 @@ async def create_task(
 
 @router.get("/", response_model=list[TaskOut])
 async def list_tasks(
+    status: Optional[TaskStatus] = None,
     db: AsyncSession = Depends(get_db),
     user_id: UUID = Depends(get_current_user_id),
 ):
-    result = await db.execute(
-        select(Task).where(Task.user_id == user_id).order_by(Task.deadline)
-    )
+    query = select(Task).where(Task.user_id == user_id).order_by(Task.deadline)
+    if status is not None:
+        query = query.where(Task.status == status.value)
+    result = await db.execute(query)
     return result.scalars().all()
+
+@router.get("/summary", response_model=TaskSummaryOut)
+async def task_summary(
+    db: AsyncSession = Depends(get_db),
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """Panel de seguimiento (RF-11): conteo de tareas por estado."""
+    result = await db.execute(
+        select(Task.status, func.count(Task.id))
+        .where(Task.user_id == user_id)
+        .group_by(Task.status)
+    )
+    counts = {status: count for status, count in result.all()}
+    return TaskSummaryOut(
+        total=sum(counts.values()),
+        pending=counts.get("pending", 0),
+        in_progress=counts.get("in_progress", 0),
+        completed=counts.get("completed", 0),
+        overdue=counts.get("overdue", 0),
+        rescheduled=counts.get("rescheduled", 0),
+    )
 
 @router.get("/{task_id}", response_model=TaskOut)
 async def get_task(task_id: UUID, db: AsyncSession = Depends(get_db), user_id: UUID = Depends(get_current_user_id)):

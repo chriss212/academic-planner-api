@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, time
+from datetime import date, datetime, time
 from typing import Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
-
-from app.schemas.availability import Weekday
 
 
 PlanScope = Literal["diario", "semanal"]
@@ -16,7 +14,7 @@ ResponseStatus = Literal["valid", "invalid", "error"]
 
 class PlanItemOut(BaseModel):
     tarea_id: UUID
-    dia: Weekday
+    dia: date
     bloque_inicio: time
     bloque_fin: time
     orden: int = Field(ge=1)

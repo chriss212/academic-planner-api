@@ -1,20 +1,11 @@
-from pydantic import BaseModel, Field, model_validator, ConfigDict
-from datetime import time
+from pydantic import BaseModel, model_validator, ConfigDict
+from datetime import date as date_type, time
 from uuid import UUID
 from typing import Optional
-from enum import Enum
 
-class Weekday(str, Enum):
-    lunes = "lunes"
-    martes = "martes"
-    miercoles = "miercoles"
-    jueves = "jueves"
-    viernes = "viernes"
-    sabado = "sabado"
-    domingo = "domingo"
 
 class AvailabilityCreate(BaseModel):
-    day: Weekday
+    date: date_type
     start_time: time
     end_time:   time
     label:      Optional[str] = None
@@ -27,7 +18,7 @@ class AvailabilityCreate(BaseModel):
 
 
 class AvailabilityUpdate(BaseModel):
-    day: Optional[Weekday] = None
+    date: Optional[date_type] = None
     start_time: Optional[time] = None
     end_time: Optional[time] = None
     label: Optional[str] = None
@@ -38,10 +29,11 @@ class AvailabilityUpdate(BaseModel):
             raise ValueError("end_time debe ser mayor que start_time")
         return self
 
+
 class AvailabilityOut(BaseModel):
     id:         UUID
     user_id:    UUID
-    day:        Weekday
+    date:       date_type
     start_time: time
     end_time:   time
     label:      Optional[str]

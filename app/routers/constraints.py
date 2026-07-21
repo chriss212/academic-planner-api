@@ -4,7 +4,12 @@ from sqlalchemy import select
 from uuid import UUID
 from app.database import get_db
 from app.models.constraint import Constraint
-from app.schemas.constraint import ConstraintCreate, ConstraintOut, ConstraintUpdate
+from app.schemas.constraint import (
+    ConstraintCreate,
+    ConstraintOut,
+    ConstraintUpdate,
+    validate_constraint_metadata,
+)
 from app.core.auth import get_current_user_id
 from app.services.replanning import generate_and_persist_plan
 from app.schemas.plan import PlanGenerationRequest
@@ -13,7 +18,12 @@ router = APIRouter(prefix="/constraints", tags=["constraints"])
 
 @router.post("/", response_model=ConstraintOut, status_code=201)
 async def create_constraint(payload: ConstraintCreate, db: AsyncSession = Depends(get_db), user_id: UUID = Depends(get_current_user_id)):
-    constraint = Constraint(**payload.model_dump(), user_id=user_id)
+    constraint = Constraint(
+        type=payload.type,
+        description=payload.description,
+        meta_data=payload.metadata,
+        user_id=user_id,
+    )
     db.add(constraint)
     await db.commit()
     await db.refresh(constraint)
@@ -52,7 +62,17 @@ async def update_constraint(
     constraint = result.scalar_one_or_none()
     if not constraint:
         raise HTTPException(status_code=404, detail="Restricción no encontrada")
-    for field, value in payload.model_dump(exclude_none=True).items():
+
+    changes = payload.model_dump(exclude_none=True)
+    if "metadata" in changes and payload.type is None:
+        try:
+            changes["metadata"] = validate_constraint_metadata(constraint.type, changes["metadata"])
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    if "metadata" in changes:
+        constraint.meta_data = changes.pop("metadata")
+    for field, value in changes.items():
         setattr(constraint, field, value)
     await db.commit()
     await db.refresh(constraint)

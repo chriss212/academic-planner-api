@@ -11,12 +11,41 @@ from app.schemas.plan import PlanGenerationRequest
 
 router = APIRouter(prefix="/availability", tags=["availability"])
 
+
+async def _check_no_overlap(
+    db: AsyncSession,
+    user_id: UUID,
+    day,
+    start_time,
+    end_time,
+    exclude_id: UUID | None = None,
+) -> None:
+    query = select(AvailabilityBlock).where(
+        AvailabilityBlock.user_id == user_id,
+        AvailabilityBlock.date == day,
+        AvailabilityBlock.start_time < end_time,
+        AvailabilityBlock.end_time > start_time,
+    )
+    if exclude_id is not None:
+        query = query.where(AvailabilityBlock.id != exclude_id)
+    result = await db.execute(query.limit(1))
+    if result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "ERR-DATA-002",
+                "message": f"El bloque se solapa con otro ya registrado el {day.isoformat()}.",
+            },
+        )
+
+
 @router.post("/", response_model=AvailabilityOut, status_code=201)
 async def create_block(
     payload: AvailabilityCreate,
     db: AsyncSession = Depends(get_db),
     user_id: UUID = Depends(get_current_user_id),
 ):
+    await _check_no_overlap(db, user_id, payload.date, payload.start_time, payload.end_time)
     block = AvailabilityBlock(**payload.model_dump(), user_id=user_id)
     db.add(block)
     await db.commit()
@@ -45,7 +74,7 @@ async def list_blocks(db: AsyncSession = Depends(get_db), user_id: UUID = Depend
     result = await db.execute(
         select(AvailabilityBlock)
         .where(AvailabilityBlock.user_id == user_id)
-        .order_by(AvailabilityBlock.day, AvailabilityBlock.start_time)
+        .order_by(AvailabilityBlock.date, AvailabilityBlock.start_time)
     )
     return result.scalars().all()
 
@@ -60,7 +89,19 @@ async def update_block(
     block = result.scalar_one_or_none()
     if not block:
         raise HTTPException(status_code=404, detail="Bloque no encontrado")
-    for field, value in payload.model_dump(exclude_none=True).items():
+
+    changes = payload.model_dump(exclude_none=True)
+    new_date = changes.get("date", block.date)
+    new_start = changes.get("start_time", block.start_time)
+    new_end = changes.get("end_time", block.end_time)
+    if new_end <= new_start:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "ERR-DATA-002", "message": "end_time debe ser mayor que start_time."},
+        )
+    await _check_no_overlap(db, user_id, new_date, new_start, new_end, exclude_id=block_id)
+
+    for field, value in changes.items():
         setattr(block, field, value)
     await db.commit()
     await db.refresh(block)

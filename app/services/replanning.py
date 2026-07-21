@@ -39,7 +39,7 @@ def _constraint_out(constraint: Constraint) -> ConstraintOut:
 async def _load_context(db: AsyncSession, user_id: UUID):
     tasks_result = await db.execute(select(Task).where(Task.user_id == user_id).order_by(Task.deadline))
     availability_result = await db.execute(
-        select(AvailabilityBlock).where(AvailabilityBlock.user_id == user_id).order_by(AvailabilityBlock.day)
+        select(AvailabilityBlock).where(AvailabilityBlock.user_id == user_id).order_by(AvailabilityBlock.date)
     )
     constraint_result = await db.execute(select(Constraint).where(Constraint.user_id == user_id))
 
@@ -119,7 +119,7 @@ async def generate_and_persist_plan(
 
     service = ReplanService()
     try:
-        raw_response, parsed, prompt_used = await service.generate_plan(
+        raw_response, parsed, prompt_used, token_usage = await service.generate_plan(
             payload=PlanGenerationRequest(scope=scope, user_note=payload.user_note, change_block=payload.change_block),
             context=context,
             task_ids=[task.id for task in tasks],
@@ -176,7 +176,7 @@ async def generate_and_persist_plan(
         prompt_enviado=prompt_used,
         respuesta_ia=raw_response,
         response_status=response_status,
-        modelo_usado=settings.ai_model,
+        modelo_usado=settings.openai_model,
         validation_code=business_validation.validation_code,
         estado_revision=estado_revision,
         approval_status="propuesto",
@@ -203,7 +203,9 @@ async def generate_and_persist_plan(
         prompt_enviado=prompt_used,
         respuesta_ia=raw_response,
         response_status=response_status,
-        modelo_usado=settings.ai_model,
+        modelo_usado=settings.openai_model,
+        tokens_entrada=token_usage.input_tokens,
+        tokens_salida=token_usage.output_tokens,
     )
     db.add(trace)
 
