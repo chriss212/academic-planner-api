@@ -67,6 +67,9 @@ async def create_block(
         ),
     )
     response.headers["X-Replan-Status"] = replan_status
+    # El replan puede haber hecho rollback (p. ej. tras una colisión de versión
+    # por concurrencia), lo que invalida los objetos ya cargados en la sesión.
+    await db.refresh(block)
     return block
 
 @router.get("/", response_model=list[AvailabilityOut])
@@ -122,6 +125,7 @@ async def update_block(
         ),
     )
     response.headers["X-Replan-Status"] = replan_status
+    await db.refresh(block)
     return block
 
 @router.delete("/{block_id}", status_code=204)

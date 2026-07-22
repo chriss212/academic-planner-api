@@ -53,13 +53,16 @@ async def _load_context(db: AsyncSession, user_id: UUID):
     return tasks, availability_blocks, constraints
 
 
-async def _latest_plan(db: AsyncSession, user_id: UUID) -> Plan | None:
-    result = await db.execute(
+async def _latest_plan(db: AsyncSession, user_id: UUID, *, for_update: bool = False) -> Plan | None:
+    query = (
         select(Plan)
         .where(Plan.user_id == user_id)
         .order_by(Plan.version.desc(), Plan.created_at.desc())
         .limit(1)
     )
+    if for_update:
+        query = query.with_for_update()
+    result = await db.execute(query)
     return result.scalar_one_or_none()
 
 
@@ -135,7 +138,10 @@ async def generate_and_persist_plan(
             task.status = TaskStatus.overdue.value
     task_outs = [_task_out(task) for task in tasks]
 
-    previous_plan = await _latest_plan(db, user_id)
+    # Bloquea la fila del último plan (si existe) para serializar replanificaciones
+    # concurrentes del mismo usuario: sin este lock, dos mutaciones casi simultáneas
+    # pueden leer la misma "última versión" y chocar al insertar (uq_plan_user_version).
+    previous_plan = await _latest_plan(db, user_id, for_update=True)
     scope = payload.scope or (previous_plan.scope if previous_plan else "semanal")
     version = (previous_plan.version + 1) if previous_plan else 1
 
@@ -324,7 +330,15 @@ async def try_auto_replan(
         result = await generate_and_persist_plan(db, user_id, payload)
         return f"replanned_v{result.version}"
     except HTTPException as error:
+        await db.rollback()
         detail = error.detail
         code = detail.get("code") if isinstance(detail, dict) else f"HTTP-{error.status_code}"
         logger.warning("Auto-replan falló para el usuario %s: %s", user_id, detail)
         return f"failed_{code}"
+    except Exception:
+        # Defensa contra fallos inesperados (p. ej. una colisión de versión por
+        # concurrencia): la replanificación es best-effort y nunca debe tumbar
+        # la mutación que la disparó ni la respuesta HTTP de esa mutación.
+        await db.rollback()
+        logger.exception("Auto-replan falló de forma inesperada para el usuario %s", user_id)
+        return "failed_ERR-SYS-002"

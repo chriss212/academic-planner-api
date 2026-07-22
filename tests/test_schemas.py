@@ -21,9 +21,12 @@ class TestTaskSchemas:
         with pytest.raises(ValidationError, match="deadline"):
             TaskCreate(title="Ensayo", deadline=YESTERDAY, priority=3, effort_hours=2)
 
-    def test_update_deadline_pasado_rechazado(self):
-        with pytest.raises(ValidationError, match="deadline"):
-            TaskUpdate(deadline=YESTERDAY)
+    def test_update_permite_deadline_pasado(self):
+        """A diferencia de TaskCreate, actualizar una tarea existente cuyo
+        deadline ya venció debe seguir siendo posible (p. ej. marcarla como
+        completada) sin que la fecha, ya vencida, bloquee el guardado."""
+        update = TaskUpdate(deadline=YESTERDAY)
+        assert update.deadline == YESTERDAY
 
     def test_priority_fuera_de_rango(self):
         with pytest.raises(ValidationError):

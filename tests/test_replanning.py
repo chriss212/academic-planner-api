@@ -19,6 +19,17 @@ from app.services.replanning import try_auto_replan
 TASK_ID = uuid.uuid4()
 
 
+class FakeDb:
+    """Stub mínimo para probar la ruta de manejo de errores de try_auto_replan
+    sin una sesión real: solo necesita responder a rollback()."""
+
+    def __init__(self) -> None:
+        self.rolled_back = False
+
+    async def rollback(self) -> None:
+        self.rolled_back = True
+
+
 def _wire(tarea_id: str) -> AIPlanResponseWire:
     return AIPlanResponseWire(
         version_plan="v1",
@@ -158,6 +169,28 @@ async def test_auto_replan_no_propaga_fallo_y_lo_expone(monkeypatch):
     monkeypatch.setattr(replanning, "_latest_plan", existing_plan)
     monkeypatch.setattr(replanning, "generate_and_persist_plan", failing_generate)
 
-    status = await try_auto_replan(db=None, user_id=uuid.uuid4(), payload=_payload())
+    fake_db = FakeDb()
+    status = await try_auto_replan(db=fake_db, user_id=uuid.uuid4(), payload=_payload())
 
     assert status == "failed_ERR-SYS-001"
+    assert fake_db.rolled_back
+
+
+async def test_auto_replan_no_propaga_fallo_inesperado(monkeypatch):
+    """Un fallo no anticipado (p. ej. una colisión de versión por concurrencia,
+    IntegrityError) tampoco debe tumbar la mutación que disparó el replan."""
+
+    async def existing_plan(db, user_id):
+        return SimpleNamespace(version=1)
+
+    async def failing_generate(db, user_id, payload):
+        raise RuntimeError("duplicate key value violates unique constraint")
+
+    monkeypatch.setattr(replanning, "_latest_plan", existing_plan)
+    monkeypatch.setattr(replanning, "generate_and_persist_plan", failing_generate)
+
+    fake_db = FakeDb()
+    status = await try_auto_replan(db=fake_db, user_id=uuid.uuid4(), payload=_payload())
+
+    assert status == "failed_ERR-SYS-002"
+    assert fake_db.rolled_back

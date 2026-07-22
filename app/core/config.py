@@ -4,6 +4,10 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     database_url: str
 
+    # Autenticación
+    secret_key: str = "dev-insecure-secret-change-me"
+    access_token_expire_minutes: int = 60 * 24 * 7
+
     # OpenAI
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"

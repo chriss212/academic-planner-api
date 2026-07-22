@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import tasks, availability, plans, ai
+from app.routers import tasks, availability, plans, ai, auth
 from app.routers import constraints
 from app.core.config import settings
 
@@ -18,6 +18,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
 app.include_router(tasks.router)
 app.include_router(availability.router)
 app.include_router(constraints.router)

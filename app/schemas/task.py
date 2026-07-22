@@ -35,12 +35,10 @@ class TaskUpdate(BaseModel):
     effort_hours: Optional[int]        = Field(None, gt=0)
     status:       Optional[TaskStatus] = None
 
-    @field_validator("deadline")
-    @classmethod
-    def deadline_not_past(cls, value: Optional[date]) -> Optional[date]:
-        if value is not None and value < date.today():
-            raise ValueError("deadline no puede ser anterior a hoy")
-        return value
+    # A diferencia de TaskCreate, aquí NO se valida que deadline no sea pasado:
+    # una tarea existente cuya fecha límite ya venció (p. ej. una tarea atrasada)
+    # debe poder seguir editándose — cambiar su estado, reprogramarla, etc. —
+    # sin que ese chequeo bloquee la actualización.
 
 class TaskSummaryOut(BaseModel):
     total:       int

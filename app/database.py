@@ -6,7 +6,8 @@ engine = create_async_engine(
     settings.database_url,
     echo=True,        # muestra las queries en consola, útil para debug
     pool_size=5,
-    max_overflow=10
+    max_overflow=10,
+    connect_args={"statement_cache_size": 0},  # requerido por el pgbouncer del pooler de Supabase (modo transaction)
 )
 
 AsyncSessionLocal = sessionmaker(

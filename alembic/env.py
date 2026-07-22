@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from app.core.config import settings
 from app.database import Base
 
-from app.models import ai_trace, availability, constraint, history, plan, task 
+from app.models import ai_trace, availability, constraint, history, plan, task, user
 
 config = context.config
 
@@ -46,6 +46,7 @@ async def run_async_migrations() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args={"statement_cache_size": 0},  # requerido por el pgbouncer del pooler de Supabase (modo transaction)
     )
 
     async with connectable.connect() as connection:

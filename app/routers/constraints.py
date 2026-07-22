@@ -48,6 +48,9 @@ async def create_constraint(
         ),
     )
     response.headers["X-Replan-Status"] = replan_status
+    # El replan puede haber hecho rollback (p. ej. tras una colisión de versión
+    # por concurrencia), lo que invalida los objetos ya cargados en la sesión.
+    await db.refresh(constraint)
     return constraint
 
 @router.get("/", response_model=list[ConstraintOut])
@@ -97,6 +100,7 @@ async def update_constraint(
         ),
     )
     response.headers["X-Replan-Status"] = replan_status
+    await db.refresh(constraint)
     return constraint
 
 @router.delete("/{constraint_id}", status_code=204)

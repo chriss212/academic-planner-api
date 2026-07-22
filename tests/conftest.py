@@ -35,12 +35,13 @@ def _compile_jsonb_sqlite(element, compiler, **kw):
 from app.database import Base, get_db  
 from app.main import app as fastapi_app  
 
-import app.models.task  
-import app.models.availability  
-import app.models.constraint  
-import app.models.plan  
-import app.models.history  
-import app.models.ai_trace  
+import app.models.task
+import app.models.availability
+import app.models.constraint
+import app.models.plan
+import app.models.history
+import app.models.ai_trace
+import app.models.user
 
 
 @pytest_asyncio.fixture

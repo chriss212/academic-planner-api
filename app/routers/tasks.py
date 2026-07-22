@@ -40,6 +40,11 @@ async def create_task(
         ),
     )
     response.headers["X-Replan-Status"] = replan_status
+    # El replan puede haber hecho rollback (p. ej. tras una colisión de versión
+    # por concurrencia), lo que invalida los objetos ya cargados en la sesión.
+    # Se refresca antes de serializar para no disparar una recarga perezosa
+    # fuera de un contexto async válido.
+    await db.refresh(task)
     return task
 
 @router.get("/", response_model=list[TaskOut])
@@ -115,6 +120,7 @@ async def update_task(
         ),
     )
     response.headers["X-Replan-Status"] = replan_status
+    await db.refresh(task)
     return task
 
 @router.delete("/{task_id}", status_code=204)
