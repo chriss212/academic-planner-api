@@ -15,6 +15,7 @@ class HistoryEntryOut(BaseModel):
     action: str
     approval_status: str
     prompt_used: str
+    respuesta_ia: Optional[str] = None
     created_at: Optional[datetime]
     user_note: Optional[str] = None
     change_block: Optional[dict[str, Any]] = None

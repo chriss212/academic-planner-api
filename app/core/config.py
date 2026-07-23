@@ -4,8 +4,8 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     database_url: str
 
-    # Autenticación
-    secret_key: str = "dev-insecure-secret-change-me"
+    # Autenticación — sin default: la app debe fallar al arrancar si falta en el entorno.
+    secret_key: str
     access_token_expire_minutes: int = 60 * 24 * 7
 
     # OpenAI

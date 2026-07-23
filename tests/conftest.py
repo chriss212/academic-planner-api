@@ -32,8 +32,13 @@ def _compile_jsonb_sqlite(element, compiler, **kw):
     return "JSON"
 
 
-from app.database import Base, get_db  
-from app.main import app as fastapi_app  
+from uuid import UUID
+
+from app.core.auth import get_current_user_id
+from app.database import Base, get_db
+from app.main import app as fastapi_app
+
+TEST_USER_ID = UUID("11111111-1111-1111-1111-111111111111")
 
 import app.models.task
 import app.models.availability
@@ -78,6 +83,7 @@ async def client(db_engine):
                 raise
 
     fastapi_app.dependency_overrides[get_db] = override_get_db
+    fastapi_app.dependency_overrides[get_current_user_id] = lambda: TEST_USER_ID
     transport = ASGITransport(app=fastapi_app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac

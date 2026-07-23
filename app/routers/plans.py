@@ -132,6 +132,7 @@ async def update_plan(
         action="editado",
         approval_status="editado",
         prompt_used=plan.prompt_enviado,
+        respuesta_ia=plan.respuesta_ia,
         user_note=payload.user_note,
     )
     db.add(history)
@@ -161,6 +162,7 @@ async def update_approval(
         action=payload.approval_status,
         approval_status=payload.approval_status,
         prompt_used=plan.prompt_enviado,
+        respuesta_ia=plan.respuesta_ia,
         user_note=payload.user_note,
     )
     db.add(history)

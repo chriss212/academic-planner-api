@@ -20,6 +20,7 @@ class HistoryEntry(Base):
     action = Column(String(30), nullable=False)
     approval_status = Column(String(30), nullable=False)
     prompt_used = Column(Text, nullable=False)
+    respuesta_ia = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
     user_note = Column(Text)
     change_block = Column(JSONB)

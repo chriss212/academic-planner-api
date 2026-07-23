@@ -286,6 +286,7 @@ async def generate_and_persist_plan(
         action="replanificado" if previous_plan else "generado",
         approval_status="propuesto",
         prompt_used=plan_row.prompt_enviado,
+        respuesta_ia=plan_row.respuesta_ia,
         user_note=payload.user_note,
         change_block=payload.change_block,
     )
